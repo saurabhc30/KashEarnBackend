@@ -221,54 +221,48 @@ router.post("/signup", async (req, res) => {
 
         if (referredBy) {
 
-            await User.updateOne(
+            const referrer = await User.findOne({
+                inviteCode: referredBy
+            });
 
-                {
-                    inviteCode: referredBy
-                },
+            if (referrer) {
 
-                {
-                    $inc: {
+                referrer.referrals =
+                    Number(referrer.referrals || 0) + 1;
 
-                        referrals: 1,
+                referrer.balance =
+                    Number(referrer.balance || 0) +
+                    REFERRAL_REWARD;
 
-                        balance:
-                            REFERRAL_REWARD,
+                referrer.totalEarnings =
+                    Number(referrer.totalEarnings || 0) +
+                    REFERRAL_REWARD;
 
-                        totalEarnings:
-                            REFERRAL_REWARD
+                await referrer.save();
 
-                    }
-                }
 
-            );
+                // Create referral transaction
+                await Transaction.create({
 
-        }
+                    userId:
+                        referrer._id,
 
-        return res.status(201).json({
+                    type:
+                        "Referral",
 
-            success: true,
+                    amount:
+                        REFERRAL_REWARD,
 
-            message:
-                "Account created successfully.",
+                    status:
+                        "Completed",
 
-            user: {
+                    description:
+                        "Referral reward"
 
-                id:
-                    user._id,
-
-                name:
-                    user.name,
-
-                email:
-                    user.email,
-
-                inviteCode:
-                    user.inviteCode
+                });
 
             }
-
-        });
+        }
 
 
     } catch (error) {
