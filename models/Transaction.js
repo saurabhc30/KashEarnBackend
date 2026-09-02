@@ -12,6 +12,7 @@ const transactionSchema = new mongoose.Schema(
             type: String,
             required: true,
             enum: [
+                "Signup Bonus",
                 "Watch Ad",
                 "Daily Login",
                 "Daily Bonus",
