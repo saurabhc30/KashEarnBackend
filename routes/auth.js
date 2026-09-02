@@ -3,8 +3,17 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 
 const User = require("../models/Users");
+const Transaction = require("../models/Transaction");
 
 const router = express.Router();
+
+
+/* =========================================
+   REWARDS
+========================================= */
+
+const SIGNUP_BONUS = 25;
+const REFERRAL_REWARD = 50;
 
 
 /* =========================================
@@ -53,7 +62,9 @@ router.post("/signup", async (req, res) => {
         } = req.body;
 
 
-        /* REQUIRED FIELDS */
+        /* =========================================
+           REQUIRED FIELDS
+        ========================================= */
 
         if (
             !name ||
@@ -70,7 +81,9 @@ router.post("/signup", async (req, res) => {
         }
 
 
-        /* TERMS */
+        /* =========================================
+           TERMS
+        ========================================= */
 
         if (termsAccepted !== true) {
 
@@ -83,7 +96,9 @@ router.post("/signup", async (req, res) => {
         }
 
 
-        /* PASSWORD MATCH */
+        /* =========================================
+           PASSWORD MATCH
+        ========================================= */
 
         if (password !== confirmPassword) {
 
@@ -96,7 +111,9 @@ router.post("/signup", async (req, res) => {
         }
 
 
-        /* PASSWORD LENGTH */
+        /* =========================================
+           PASSWORD LENGTH
+        ========================================= */
 
         if (password.length < 6) {
 
@@ -109,7 +126,9 @@ router.post("/signup", async (req, res) => {
         }
 
 
-        /* EMAIL FORMAT */
+        /* =========================================
+           EMAIL FORMAT
+        ========================================= */
 
         const normalizedEmail =
             email.trim().toLowerCase();
@@ -128,7 +147,9 @@ router.post("/signup", async (req, res) => {
         }
 
 
-        /* CHECK EXISTING USER */
+        /* =========================================
+           CHECK EXISTING USER
+        ========================================= */
 
         const existingUser =
             await User.findOne({
@@ -146,7 +167,9 @@ router.post("/signup", async (req, res) => {
         }
 
 
-        /* REFERRAL */
+        /* =========================================
+           REFERRAL
+        ========================================= */
 
         let referredBy = null;
 
@@ -176,7 +199,9 @@ router.post("/signup", async (req, res) => {
         }
 
 
-        /* PASSWORD HASH */
+        /* =========================================
+           PASSWORD HASH
+        ========================================= */
 
         const passwordHash =
             await bcrypt.hash(
@@ -185,13 +210,19 @@ router.post("/signup", async (req, res) => {
             );
 
 
-        /* UNIQUE USER INVITE CODE */
+        /* =========================================
+           UNIQUE USER INVITE CODE
+        ========================================= */
 
         const newInviteCode =
             await generateInviteCode();
 
 
-        /* CREATE USER */
+        /* =========================================
+           CREATE USER
+           
+           EVERY NEW USER GETS ₹25
+        ========================================= */
 
         const user =
             await User.create({
@@ -207,28 +238,63 @@ router.post("/signup", async (req, res) => {
                 inviteCode:
                     newInviteCode,
 
-                referredBy
+                referredBy,
+
+                // Signup bonus
+                balance:
+                    SIGNUP_BONUS,
+
+                totalEarnings:
+                    SIGNUP_BONUS
 
             });
 
 
         /* =========================================
-   UPDATE REFERRER
-   ₹50 REFERRAL REWARD
-========================================= */
+           SIGNUP BONUS TRANSACTION
+           
+           This appears in the new user's
+           transaction history.
+        ========================================= */
 
-        const REFERRAL_REWARD = 50;
+        await Transaction.create({
+
+            userId:
+                user._id,
+
+            type:
+                "Signup Bonus",
+
+            amount:
+                SIGNUP_BONUS,
+
+            status:
+                "Completed",
+
+            description:
+                "Signup bonus for creating a new account"
+
+        });
+
+
+        /* =========================================
+           UPDATE REFERRER
+           
+           REFERRER GETS ₹50
+        ========================================= */
 
         if (referredBy) {
 
-            const referrer = await User.findOne({
-                inviteCode: referredBy
-            });
+            const referrer =
+                await User.findOne({
+                    inviteCode: referredBy
+                });
 
             if (referrer) {
 
                 referrer.referrals =
-                    Number(referrer.referrals || 0) + 1;
+                    Number(referrer.referrals || 0) +
+                    1;
 
                 referrer.balance =
                     Number(referrer.balance || 0) +
@@ -241,7 +307,13 @@ router.post("/signup", async (req, res) => {
                 await referrer.save();
 
 
-                // Create referral transaction
+                /* =========================================
+                   REFERRAL TRANSACTION
+                   
+                   This appears in the referrer's
+                   transaction history.
+                ========================================= */
+
                 await Transaction.create({
 
                     userId:
@@ -265,6 +337,47 @@ router.post("/signup", async (req, res) => {
         }
 
 
+        /* =========================================
+           SUCCESS RESPONSE
+        ========================================= */
+
+        return res.status(201).json({
+
+            success: true,
+
+            message:
+                `Account created successfully. ₹${SIGNUP_BONUS} signup bonus added.`,
+
+            signupBonus:
+                SIGNUP_BONUS,
+
+            user: {
+
+                id:
+                    user._id,
+
+                name:
+                    user.name,
+
+                email:
+                    user.email,
+
+                inviteCode:
+                    user.inviteCode,
+
+                balance:
+                    user.balance,
+
+                totalEarnings:
+                    user.totalEarnings,
+
+                referrals:
+                    user.referrals
+
+            }
+
+        });
+
     } catch (error) {
 
         console.error(
@@ -285,6 +398,7 @@ router.post("/signup", async (req, res) => {
 
 });
 
+
 /* =========================================
    LOGIN
 ========================================= */
@@ -299,20 +413,40 @@ router.post("/login", async (req, res) => {
             termsAccepted
         } = req.body;
 
+
+        /* =========================================
+           REQUIRED FIELDS
+        ========================================= */
+
         if (!email || !password) {
+
             return res.status(400).json({
                 success: false,
-                message: "Email and password are required."
+                message:
+                    "Email and password are required."
             });
+
         }
 
+
+        /* =========================================
+           TERMS
+        ========================================= */
+
         if (termsAccepted !== true) {
+
             return res.status(400).json({
                 success: false,
                 message:
                     "Please accept the Terms and Conditions."
             });
+
         }
+
+
+        /* =========================================
+           FIND USER
+        ========================================= */
 
         const normalizedEmail =
             email.trim().toLowerCase();
@@ -324,22 +458,34 @@ router.post("/login", async (req, res) => {
 
 
         if (!user) {
+
             return res.status(401).json({
                 success: false,
-                message: "Invalid email or password."
+                message:
+                    "Invalid email or password."
             });
+
         }
 
-        /* CHECK DISABLED ACCOUNT */
+
+        /* =========================================
+           CHECK DISABLED ACCOUNT
+        ========================================= */
 
         if (user.accountDisabled) {
 
             return res.status(403).json({
                 success: false,
-                message: "Your account has been disabled."
+                message:
+                    "Your account has been disabled."
             });
 
         }
+
+
+        /* =========================================
+           CHECK PASSWORD
+        ========================================= */
 
         const passwordCorrect =
             await bcrypt.compare(
@@ -348,34 +494,59 @@ router.post("/login", async (req, res) => {
             );
 
         if (!passwordCorrect) {
+
             return res.status(401).json({
                 success: false,
-                message: "Invalid email or password."
+                message:
+                    "Invalid email or password."
             });
+
         }
 
-        /*
-         * For now we return the user information.
-         * JWT authentication will be added next.
-         */
+
+        /* =========================================
+           LOGIN SUCCESS
+        ========================================= */
 
         return res.status(200).json({
 
             success: true,
 
-            message: "Login successful.",
+            message:
+                "Login successful.",
 
             user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                inviteCode: user.inviteCode,
-                referrals: user.referrals,
-                balance: user.balance,
-                totalEarnings: user.totalEarnings,
-                adsWatched: user.adsWatched,
-                loginDays: user.loginDays,
-                currentStreak: user.currentStreak
+
+                id:
+                    user._id,
+
+                name:
+                    user.name,
+
+                email:
+                    user.email,
+
+                inviteCode:
+                    user.inviteCode,
+
+                referrals:
+                    user.referrals,
+
+                balance:
+                    user.balance,
+
+                totalEarnings:
+                    user.totalEarnings,
+
+                adsWatched:
+                    user.adsWatched,
+
+                loginDays:
+                    user.loginDays,
+
+                currentStreak:
+                    user.currentStreak
+
             }
 
         });
